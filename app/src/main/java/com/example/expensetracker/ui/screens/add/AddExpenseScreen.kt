@@ -1,7 +1,7 @@
 package com.example.expensetracker.ui.screens.add
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.LocalGroceryStore
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -22,6 +23,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -31,8 +34,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -46,20 +54,43 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddExpenseScreen(
     modifier: Modifier = Modifier,
+    expenseId: Int = -1,
     viewModel: AddExpenseViewModel = hiltViewModel(),
     onDone: () -> Unit
 ) {
     var title by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Food") }
+    var date by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    
     var expanded by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val expenseToEdit by viewModel.expenseToEdit.collectAsState()
+
+    LaunchedEffect(expenseId) {
+        viewModel.loadExpense(expenseId)
+    }
+
+    LaunchedEffect(expenseToEdit) {
+        expenseToEdit?.let {
+            title = it.title
+            amount = it.amount.toString()
+            category = it.category
+            date = it.date
+        }
+    }
 
     val categories = listOf("Food", "Travel", "Grocery", "Shopping+Entertainment", "Bills", "Others")
+    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
 
     fun getCategoryIcon(cat: String): ImageVector {
         return when (cat) {
@@ -72,6 +103,28 @@ fun AddExpenseScreen(
         }
     }
 
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = date)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    date = datePickerState.selectedDateMillis ?: date
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -81,7 +134,7 @@ fun AddExpenseScreen(
         Spacer(modifier = Modifier.weight(0.4f))
 
         Text(
-            text = "New Expense",
+            text = if (expenseId == -1) "New Expense" else "Edit Expense",
             fontSize = 32.sp,
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.primary,
@@ -127,6 +180,32 @@ fun AddExpenseScreen(
                         .fillMaxWidth()
                         .padding(bottom = 12.dp),
                     singleLine = true
+                )
+
+                // Date Picker Field
+                OutlinedTextField(
+                    value = dateFormatter.format(Date(date)),
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Date") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                        .clickable { showDatePicker = true },
+                    enabled = false,
+                    colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(
+                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        disabledLeadingIconColor = MaterialTheme.colorScheme.primary
+                    )
                 )
 
                 ExposedDropdownMenuBox(
@@ -182,10 +261,14 @@ fun AddExpenseScreen(
                 Button(
                     onClick = {
                         if (title.isNotBlank() && amount.isNotBlank()) {
-                            viewModel.addExpense(title, amount.toDoubleOrNull() ?: 0.0, category)
+                            viewModel.addOrUpdateExpense(
+                                id = expenseId,
+                                title = title,
+                                amount = amount.toDoubleOrNull() ?: 0.0,
+                                category = category,
+                                date = date
+                            )
                             onDone()
-                        } else {
-//                            Toast.makeText(this, "Enter the required fields", Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier
@@ -198,7 +281,7 @@ fun AddExpenseScreen(
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Text(
-                        text = "Save Expense",
+                        text = if (expenseId == -1) "Save Expense" else "Update Expense",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
